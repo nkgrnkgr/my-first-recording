@@ -19,7 +19,7 @@ export function useAudioRecorder() {
     try {
       // 録音開始時に前の録音をクリア
       setRecordedUrl(null);
-      
+
       // システム音声とマイク音声を取得
       const displayStream = await getDisplayAudioStream();
       const userStream = await getUserAudioStream();
