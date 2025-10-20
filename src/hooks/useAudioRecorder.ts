@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getDisplayAudioStream,
   getUserAudioStream,
+  mixAudioStreams,
   stopAllStreams,
 } from "@/lib/audioStream";
 
@@ -12,40 +13,57 @@ export function useAudioRecorder() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamsRef = useRef<MediaStream[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const startRecording = useCallback(async () => {
     try {
-      // システム音声を取得
+      // システム音声とマイク音声を取得
       const displayStream = await getDisplayAudioStream();
+      const userStream = await getUserAudioStream();
 
-      // 音声トラックが含まれているか確認
-      const audioTracks = displayStream.getAudioTracks();
-      console.log("Display audio tracks:", audioTracks.length);
+      console.log(
+        "Display audio tracks:",
+        displayStream.getAudioTracks().length,
+      );
+      console.log("User audio tracks:", userStream.getAudioTracks().length);
 
-      if (audioTracks.length === 0) {
+      if (displayStream.getAudioTracks().length === 0) {
         throw new Error(
-          "音声トラックが見つかりません。画面共有時に「タブの音声を共有」または「システムオーディオを共有」のチェックボックスをオンにしてください。",
+          "システム音声トラックが見つかりません。画面共有時に「タブの音声を共有」のチェックボックスをオンにしてください。",
         );
       }
 
-      // 音声トラックのみを含む新しいMediaStreamを作成
-      const audioOnlyStream = new MediaStream(audioTracks);
+      // Web Audio APIで音声をミックス
+      const { stream: mixedStream, audioContext } = mixAudioStreams([
+        displayStream,
+        userStream,
+      ]);
+      audioContextRef.current = audioContext;
+
+      console.log("AudioContext state:", audioContext.state);
+      console.log(
+        "Mixed stream audio tracks:",
+        mixedStream.getAudioTracks().length,
+      );
 
       // 元のストリームを保存（後で停止するため）
-      streamsRef.current = [displayStream];
+      streamsRef.current = [displayStream, userStream];
 
       // サポートされているMIMEタイプを確認
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : "audio/webm";
 
-      // MediaRecorderで録音開始（音声のみのストリームを使用）
-      const mediaRecorder = new MediaRecorder(audioOnlyStream, { mimeType });
+      console.log("Using MIME type:", mimeType);
+
+      // MediaRecorderで録音開始
+      const mediaRecorder = new MediaRecorder(mixedStream, { mimeType });
 
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
 
       mediaRecorder.ondataavailable = (event) => {
+        console.log("Data available:", event.data.size, "bytes");
         if (event.data.size > 0) {
           chunksRef.current.push(event.data);
         }
@@ -53,8 +71,20 @@ export function useAudioRecorder() {
 
       mediaRecorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: mimeType });
+        console.log("Recording stopped. Blob size:", blob.size, "bytes");
+        console.log("Total chunks:", chunksRef.current.length);
+
         const url = URL.createObjectURL(blob);
         setRecordedUrl(url);
+
+        // AudioContextをクローズ
+        if (
+          audioContextRef.current &&
+          audioContextRef.current.state !== "closed"
+        ) {
+          audioContextRef.current.close();
+          audioContextRef.current = null;
+        }
 
         // すべてのストリームを停止
         stopAllStreams(streamsRef.current);
@@ -101,6 +131,14 @@ export function useAudioRecorder() {
         mediaRecorderRef.current.state === "recording"
       ) {
         mediaRecorderRef.current.stop();
+      }
+
+      // AudioContextをクローズ
+      if (
+        audioContextRef.current &&
+        audioContextRef.current.state !== "closed"
+      ) {
+        audioContextRef.current.close();
       }
 
       // すべてのストリームを停止

@@ -18,7 +18,7 @@ export async function getUserAudioStream(): Promise<MediaStream> {
 }
 
 /**
- * 複数の音声ストリームを1つにミックスする
+ * 複数の音声ストリームを1つにミックスする（GainNodeを使用）
  * AudioContextも返すので、使用後にcloseすること
  */
 export function mixAudioStreams(streams: MediaStream[]): {
@@ -34,7 +34,11 @@ export function mixAudioStreams(streams: MediaStream[]): {
       const source = audioContext.createMediaStreamSource(
         new MediaStream(audioTracks),
       );
-      source.connect(destination);
+      // GainNodeを追加して音量調整可能にする
+      const gainNode = audioContext.createGain();
+      gainNode.gain.value = 1.0; // 音量は100%
+      source.connect(gainNode);
+      gainNode.connect(destination);
     }
   });
 
