@@ -39,7 +39,7 @@ export default function AudioRecorder() {
         </div>
       )}
 
-      {recordedUrl && (
+      {recordedUrl && !isRecording && (
         <div>
           <h2 className="mb-4 text-xl font-semibold">録音された音声</h2>
           <audio controls src={recordedUrl} className="w-full">
